@@ -1,7 +1,11 @@
 import functools
 import logging
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import (
+    ProcessPoolExecutor,
+    ThreadPoolExecutor,
+    as_completed,
+)
 from time import perf_counter, sleep
 
 from errands import PROJECT_ERRANDS
@@ -50,9 +54,7 @@ def errand(cron_string: str, errand_type: str = "MEDIUM"):
 
         @functools.wraps(func)
         def delay(*args, **kwargs):
-            return BaseErrandsExecutor.schedule_errand_now(
-                errand_type, func, *args, **kwargs
-            )
+            return BaseErrandsExecutor.schedule_errand_now(func, *args, **kwargs)
 
         wrapper.delay = delay
         return wrapper
@@ -77,11 +79,14 @@ class BaseErrandsExecutor:
         executor.spin_up_queue_errands()
     """
 
-    def __init__(self, errand_type):
+    def __init__(self, errand_type, loop=True):
         self.errand_type = errand_type
-        self.errands_to_run = PROJECT_ERRANDS.errands[self.errand_type].values()
-
+        self.errands_to_run = tuple(PROJECT_ERRANDS.errands[self.errand_type].values())
         self.workers = WORKERS.get(self.errand_type)
+
+        # Testing purposes
+        self.loop = loop
+        self.runs = 1 if not self.loop else -1
 
     def spin_up_queue_errands(self):
         """
@@ -90,9 +95,13 @@ class BaseErrandsExecutor:
         with ThreadPoolExecutor(
             max_workers=self.workers, thread_name_prefix=self.errand_type
         ) as executor:
-            threads = executor.map(self.execute_errand, self.errands_to_run)
-            while True:
-                next(as_completed(threads))
+            threads = (
+                executor.submit(self.execute_errand, an_errand)
+                for an_errand in self.errands_to_run
+            )
+
+            for thread in as_completed(threads):
+                thread.result()
 
     def execute_errand(self, errand):
         """
@@ -104,38 +113,42 @@ class BaseErrandsExecutor:
         func = errand.callable
         queue = f"[{self.errand_type} ERRANDS QUEUE]:"
         while True:
+            if self.runs == 0:
+                LOGGER.warning("EXITING LOOP")
+                break
+
             LOGGER.info(f"{queue} {func.__name__} WILL RUN @{errand.next_run}")
-
             sleep(errand.sleep)
-
             LOGGER.info(f"{queue} RUNNING ERRAND {func.__name__}")
 
             try:
                 start = perf_counter()
                 func()
-                end = perf_counter()
             except Exception as e:
-                LOGGER.warning(e)
+                LOGGER.error(e)
 
+            end = perf_counter()
             errand._get_next_run()
             total = round(end - start, 4)
 
             LOGGER.info(f"DONE EXECUTING {func} - IN {total} seconds")
+            self.runs -= 1
 
     @classmethod
     def schedule_errand_now(cls, func, *args, **kwargs):
         """
         Schedules an errand to be executed immediately by submitting it
-        to a separate thread pool executor.
+        to a separate process.
 
         Args:
             func (callable): The function to be executed as an errand.
             *args: Variable length argument list to be passed to the function.
             **kwargs: Arbitrary keyword arguments to be passed to the function.
         """
-        with ThreadPoolExecutor(max_workers=1) as t_exec:
-            thread = t_exec.submit(func, *args, **kwargs)
-            thread.result()
+        t_exec = ProcessPoolExecutor(max_workers=1)
+        t_exec.submit(func, *args, **kwargs)
+
+        LOGGER.info("Errand running in the background process")
 
 
 class LongErrandsExecutor(BaseErrandsExecutor):

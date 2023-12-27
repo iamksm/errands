@@ -1,3 +1,5 @@
+import hashlib
+import inspect
 import logging
 from datetime import datetime
 
@@ -82,24 +84,26 @@ class Errand:
             Callable: {self.callable}
             Errand Type: {self.errand_type}
             Cronstring: {self.cron_string}
-            Next Run: {self.next_run})"""
+            Next Run: {self.next_run})
+        """
 
 
 class ProjectErrands:
     """
-    A singleton class that manages different types of errands.
+    A singleton class managing different types of errands.
 
     Methods:
-    - add_errand: Adds an errand to the appropriate errand queue based on its type.
+        - add_errand: Adds an errand to the appropriate queue based on its type.
 
     Fields:
-    - short_errands: A dictionary to store short errands.
-    - medium_errands: A dictionary to store medium errands.
-    - long_errands: A dictionary to store long errands.
-    - errands: A dictionary that maps errand types to their respective errand queues.
+        - short_errands: Dictionary for storing short errands.
+        - medium_errands: Dictionary for storing medium errands.
+        - long_errands: Dictionary for storing long errands.
+        - errands: Dictionary mapping errand types to their respective queues.
     """
 
     _instance = None
+    _is_initialized = False
 
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
@@ -107,15 +111,35 @@ class ProjectErrands:
         return cls._instance
 
     def __init__(self) -> None:
-        self.short_errands = dict()
-        self.medium_errands = dict()
-        self.long_errands = dict()
+        if not self._is_initialized:
+            self.short_errands = dict()
+            self.medium_errands = dict()
+            self.long_errands = dict()
 
-        self.errands = {
-            "SHORT": self.short_errands,
-            "MEDIUM": self.medium_errands,
-            "LONG": self.long_errands,
-        }
+            self.errands = {
+                "SHORT": self.short_errands,
+                "MEDIUM": self.medium_errands,
+                "LONG": self.long_errands,
+            }
+
+            self._is_initialized = True
+
+    def generate_function_hash(self, func):
+        """
+        This method generates a unique hash for a given function.
+
+        Parameters:
+        func (function): The function for which the hash is to be generated.
+
+        Returns:
+        str: The hexadecimal representation of the hash.
+        """
+
+        # Serialize the function code and create a hash object using SHA-256
+        func_source = inspect.getsource(func).encode("utf-8")
+        function_hash = hashlib.sha256(func_source).hexdigest()
+
+        return function_hash
 
     def add_errand(self, errand: Errand):
         """
@@ -125,9 +149,10 @@ class ProjectErrands:
         - errand: An instance of the Errand class representing the errand to be added.
         """
         errand_queue = self.errands.get(errand.errand_type, "MEDIUM")
-        errand_queue[errand.callable] = errand
+        func_hash = self.generate_function_hash(errand.callable)
+        errand_queue[func_hash] = errand
 
-    def __repr__(self) -> str:
+    def __repr__(self) -> str:  # pragma: no cover
         """
         Returns a formatted string representation of the registered errands.
 
