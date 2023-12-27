@@ -52,13 +52,12 @@ class ErrandsConfig:
         Initializes an instance of ErrandsConfig with the project base path.
         Calls the auto_discover_errands() method to automatically discover errands.
 
-        Parameters
-        ----------
-        project_base_path : str
-            The project base path.
+        Parameters:
+        project_base_path (str): The project base path.
         """
         self.project_base_path = project_base_path
         self.current_dir = self.project_base_path
+        self.loaded_modules = set()
 
         self.auto_discover_errands()
 
@@ -91,13 +90,14 @@ class ErrandsConfig:
         We expect errands to be in files named tasks.py or *tasks*.py
         """
         for root, dirs, files in os.walk(self.current_dir):
-            for file_name in iter(fnmatch.filter(files, "*tasks*.py")):
+            for file_name in iter(fnmatch.filter(files, "*tasks.py")):
                 file_path = os.path.join(root, file_name)
 
                 package_name = self.get_package_name(file_path)
-
-                loader = SourceFileLoader(package_name, file_path)
-                loader.load_module()
+                if file_path not in self.loaded_modules:
+                    loader = SourceFileLoader(package_name, file_path)
+                    loader.load_module()
+                    self.loaded_modules.add(file_path)
 
             for subdir in iter(dirs):
                 subdir_path = os.path.join(root, subdir)

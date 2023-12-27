@@ -1,0 +1,10 @@
+-r base.txt
+
+flake8
+pytest
+tox
+coverage
+pytest
+pytest-xdist
+pytest-cov
+pytest-sugar
